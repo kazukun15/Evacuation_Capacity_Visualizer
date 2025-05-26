@@ -1,7 +1,5 @@
 streamlit
 pandas
-numpy
-pydeck
+folium
+streamlit-folium
 geopandas
-osmnx
-networkx
