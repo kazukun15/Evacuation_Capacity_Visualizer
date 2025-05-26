@@ -7,7 +7,7 @@ from streamlit_folium import st_folium
 import numpy as np
 
 # ---- 設定 ----
-GEOJSON_PATH = "hinanjyo１.geojson"  # 全角「１」に注意
+GEOJSON_PATH = "hinanjyo1.geojson"  # 全角「１」に注意
 GEOJSON_ID_COL = "name"
 GEOJSON_CAP_COL = "capacity"
 CSV_ID_COL = "name"
