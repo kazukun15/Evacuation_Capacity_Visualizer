@@ -8,25 +8,19 @@ import numpy as np
 
 st.set_page_config(page_title="避難所収容状況マップ", layout="wide")
 
-# ------------------------------------
-# アプリ説明（人間工学的なガイダンス）
 st.title("避難所収容状況マップ")
 st.markdown("""
 #### このアプリは避難所の位置・収容状況を地図と表でわかりやすく可視化します。
 
-1. **左サイドバー**から GeoJSON・CSV ファイルをアップロード
-2. **自動でカラム候補を抽出**し、各種カラムを選択
-3. 地図上の円の**大きさ＝最大収容人数**、**色＝混雑率**（緑/黄/赤/黒/グレー）
-4. 利用率は**リアルタイムに反映**され、テーブルも絞込/検索可能
+1. **サイドバー**からGeoJSONとCSVをアップロード
+2. **カラムを選択**
+3. 地図と表に即反映
 """)
 
-# ------------------------------------
-# サイドバーUI（ファイル選択＋カラム選択）
 with st.sidebar:
     st.header("ファイル選択 & 設定")
     geojson_file = st.file_uploader("GeoJSONファイル（避難所位置）", type=["geojson"])
     csv_file = st.file_uploader("CSVファイル（現在の人数等）", type=["csv"])
-
     st.markdown("---")
     st.subheader("地図設定")
     default_lat = st.number_input("初期地図の緯度", value=34.25747112128196, format="%.8f")
@@ -40,11 +34,6 @@ with st.sidebar:
     threshold2 = st.slider("黄→赤", threshold1+1, 100, 90)
     threshold3 = st.slider("赤→黒", threshold2+1, 300, 100)
     thresholds = [threshold1, threshold2, threshold3]
-    st.markdown("---")
-    st.caption("ファイルをアップロードし、下記でカラムを選択してください。")
-
-# ------------------------------------
-# ファイル読み込み（GeoJSON/CSVどちらか未選択時はサンプル自動生成）
 
 def safe_read_geojson(file):
     try:
@@ -66,7 +55,6 @@ gdf = safe_read_geojson(geojson_file) if geojson_file else None
 df_csv = safe_read_csv(csv_file) if csv_file else None
 
 if gdf is None:
-    # サンプルデータ（UIデモ用）
     from shapely.geometry import Point
     gdf = gpd.GeoDataFrame({
         "避難所名": ["本庁舎", "分庁舎", "小学校", "公民館"],
@@ -82,27 +70,22 @@ if df_csv is None:
         "現在人数": [40, 75, 99, 90]
     })
 
-# ------------------------------------
-# カラム自動検出 & ユーザー選択UI
+# --- カラム自動検出＆ユーザー選択 ---
 st.markdown("### ① カラム選択")
-st.markdown("ファイルのカラム名は自動で候補抽出されます。間違いがないかご確認ください。")
 
-# GeoJSON
 geo_cols = gdf.columns.tolist()
 point_col_candidates = [c for c in geo_cols if c.lower() in ["geometry", "geom"]]
-id_col = st.selectbox("GeoJSONの『避難所名』カラム", [c for c in geo_cols if c != "geometry"], index=0)
+# ★ 選択したカラムを変数として使う
+id_col = st.selectbox("GeoJSONの『施設名（避難所名）』カラム", [c for c in geo_cols if c != "geometry"], index=0)
 cap_col = st.selectbox("GeoJSONの『最大収容人数』カラム", [c for c in geo_cols if c != "geometry"], index=1 if len(geo_cols)>1 else 0)
 geometry_col = st.selectbox("GeoJSONのgeometryカラム", point_col_candidates, index=0)
 
-# CSV
 csv_cols = df_csv.columns.tolist()
-csv_id_col = st.selectbox("CSVの『避難所名/施設名』カラム", csv_cols, index=0)
+csv_id_col = st.selectbox("CSVの『施設名（避難所名）』カラム", csv_cols, index=0)
 csv_current_col = st.selectbox("CSVの『現在人数』カラム", csv_cols, index=1 if len(csv_cols)>1 else 0)
 
-# ------------------------------------
-# データ処理
+# --- データ処理 ---
 try:
-    # IDカラムを使ってマージ
     merged = gdf.merge(df_csv, left_on=id_col, right_on=csv_id_col, how="left")
     merged["capacity"] = merged[cap_col].fillna(1).astype(int)
     merged["current"] = merged[csv_current_col].fillna(0).astype(int)
@@ -112,37 +95,35 @@ try:
             merged["current"] / merged["capacity"] * 100,
             np.nan
         )
-    # geometry型チェック
     if not all(merged[geometry_col].apply(lambda x: x.geom_type == "Point")):
         st.warning("注意: geometryカラムは全てPoint型にしてください。")
 except Exception as e:
     st.error(f"データ処理エラー: {e}")
     st.stop()
 
-# ------------------------------------
-# 色分け関数（カラーユニバーサルデザイン配慮）
+# --- 色分け関数 ---
 def get_color(percent, thresholds):
-    # 緑→黄→赤→黒→グレー
     if np.isnan(percent):
-        return "#A9A9A9"  # gray
+        return "#A9A9A9"
     if percent < thresholds[0]:
-        return "#4CAF50"  # green（色弱対応）
+        return "#4CAF50"
     elif percent < thresholds[1]:
-        return "#FFD600"  # yellow（色弱対応）
+        return "#FFD600"
     elif percent < thresholds[2]:
-        return "#E53935"  # red（色弱対応）
+        return "#E53935"
     else:
-        return "#222222"  # black
+        return "#222222"
 
-# ------------------------------------
-# 地図生成
+# --- 地図 ---
 st.markdown("### ② 地図表示（インタラクティブ）")
 m = folium.Map(location=[default_lat, default_lon], zoom_start=13, tiles="cartodbpositron")
 for _, row in merged.iterrows():
     percent = row["percent"]
     color = get_color(percent, thresholds)
+    # ★ ポップアップや検索等「全て選択カラム名を使用」
+    facility_name = str(row[id_col])
     popup_text = (
-        f"<b>{row[id_col]}</b><br>"
+        f"<b>{facility_name}</b><br>"
         f"収容人数: <b>{row['current']} / {row['capacity']}</b><br>"
         f"利用率: <b>{percent:.1f}%</b>"
     )
@@ -160,12 +141,12 @@ for _, row in merged.iterrows():
 
 st_folium(m, width=1100, height=600)
 
-# ------------------------------------
-# 利用率フィルタ・テーブル・検索
+# --- テーブル・検索 ---
 st.markdown("### ③ データテーブル & フィルター")
 filter_percent = st.slider("利用率がこの値（％）以上の施設のみ表示", 0, 200, 0)
-search_keyword = st.text_input("避難所名で検索", "")
+search_keyword = st.text_input("施設名で検索", "")
 
+# ★ 必ず選択カラムでフィルタ・カウント・表示
 table_data = merged.copy()
 if search_keyword:
     table_data = table_data[table_data[id_col].astype(str).str.contains(search_keyword, case=False, na=False)]
@@ -174,24 +155,17 @@ table_data = table_data[table_data["percent"].fillna(0) >= filter_percent]
 st.dataframe(
     table_data[[id_col, "capacity", "current", "percent"]]
     .rename(columns={
-        id_col: "避難所名",
+        id_col: "施設名",
         "capacity": "収容人数",
         "current": "現在の人数",
         "percent": "利用率(%)"
     }).style.format({"利用率(%)": "{:.1f}"})
 )
 
-# ------------------------------------
-# ユーザーガイド
-st.info(
-    "※ カラム選択後、地図やテーブルが自動更新されます。"
-    "データに不備がある場合はカラムを見直してください。"
-    "地図は色弱にも配慮した配色で表示されます。"
-)
+# --- 施設数カウント（必ず選択カラムでユニーク数） ---
+facility_count = table_data[id_col].nunique()
+st.success(f"現在表示されている施設数：{facility_count} 箇所")
 
-# ------------------------------------
-# 追加ヒューマンインターフェース改善案（今後拡張可）
-# - マップ拡大/縮小ボタン大きめ配置
-# - 検索欄の自動フォーカス
-# - サンプルファイルのダウンロードボタン
-# - 「使い方」ボタンでオンボーディング表示
+st.info(
+    "カラム選択後、全ての表示や集計が“選択カラム”に基づいて自動で反映されます。"
+)
